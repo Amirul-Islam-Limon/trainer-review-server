@@ -1,7 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-require('dotenv').config()
+require('dotenv').config();
+const jwt = require('jsonwebtoken');
 const app = express()
 const port = process.env.PORT || 5000
 
@@ -11,10 +12,25 @@ app.use(express.json())
 
 // console.log(process.env.DB_USER, process.env.DB_PASSWORD);
 
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.1zpunru.mongodb.net/?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, {serverApi: {version: ServerApiVersion.v1,strict: true,deprecationErrors: true,}});
+
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+      return res.status(401).send({message:"unauthorized access"})
+  }
+  const token = authHeader.split(" ")[1]
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded){
+      if (err) {
+          return res.status(401).send({message:"unauthorized access"})
+      }
+      req.decoded = decoded;
+      next();
+  });
+}
+
 
 async function run() {
   try {
@@ -22,6 +38,15 @@ async function run() {
     const reviewServicesCollection = client.db("reviewServices").collection("services")
     const reviewCollection = client.db("reviewServices").collection("review")
 
+
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn:"1h"
+      })
+      res.send({token})
+      
+      })
       app.post("/addServices", async(req, res) => {
           const data = req.body;
           const result = await reviewServicesCollection.insertOne(data);
@@ -51,10 +76,19 @@ async function run() {
       res.send(results);
     })
     
-    app.get("/allCommentByEmail", async (req, res) => {
-      const email = req.query.email;
-      const query = { email: email };
-      // const sort = { length: -1 };
+    app.get("/allCommentByEmail",  verifyJWT, async (req, res) => {
+
+            const decoded = req.decoded;
+            if (decoded.email !== req.query.email) {
+                return res.status(403).send({message:"unauthorized access"})
+            }
+            let query = {};
+            if (req.query.email) {
+                query = {
+                    email: req.query.email
+                }
+            }
+      
       const cursor =  reviewCollection.find(query).sort({ _id: -1 });
       const results = await cursor.toArray();
       res.send(results);
@@ -133,5 +167,3 @@ app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
 
-// username:trainer-review11
-// password:wdXMNwoGjKsxykOf
